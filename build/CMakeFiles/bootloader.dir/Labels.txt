@@ -1,0 +1,13 @@
+# Target labels
+ bootloader
+# Source files and their labels
+C:/sog/my_prj/mpu9250/build/CMakeFiles/bootloader
+C:/sog/my_prj/mpu9250/build/CMakeFiles/bootloader.rule
+C:/sog/my_prj/mpu9250/build/CMakeFiles/bootloader-complete.rule
+C:/sog/my_prj/mpu9250/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+C:/sog/my_prj/mpu9250/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+C:/sog/my_prj/mpu9250/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+C:/sog/my_prj/mpu9250/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+C:/sog/my_prj/mpu9250/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+C:/sog/my_prj/mpu9250/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+C:/sog/my_prj/mpu9250/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule
