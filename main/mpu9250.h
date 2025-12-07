@@ -17,6 +17,14 @@
 #include "driver/i2c.h"
 #include "esp_err.h"
 
+
+/** @brief Default MPU-9250 I2C address */
+#define MPU9250_I2C_ADDR 0x68
+#define MPU9250_I2C_ADDR_ALT 0x69
+#define AK8963_I2C_ADDR 0x0C
+
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif

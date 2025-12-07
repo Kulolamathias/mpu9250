@@ -5,6 +5,7 @@
  * @date 2024
  */
 
+#include "math.h"
 #include "mpu9250.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"

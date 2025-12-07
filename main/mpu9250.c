@@ -9,6 +9,7 @@
  *          calibration, and temperature compensation.
  */
 
+#include <string.h>
 #include "mpu9250.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -212,10 +213,6 @@ static const float GYRO_SCALES[] = {
     [GYRO_FS_2000DPS] = 2000.0f * M_PI / (180.0f * 32768.0f)  // ±2000°/s
 };
 
-/** @brief Default MPU-9250 I2C address */
-#define MPU9250_I2C_ADDR 0x68
-#define MPU9250_I2C_ADDR_ALT 0x69
-#define AK8963_I2C_ADDR 0x0C
 
 /**
  * @brief Initialize MPU sensor
