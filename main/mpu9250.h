@@ -114,6 +114,12 @@ typedef struct {
 typedef struct {
     i2c_port_t i2c_port;
     uint8_t i2c_address;
+    
+    // Add these lines:
+    int sda_pin;        /**< GPIO pin for I2C SDA */
+    int scl_pin;        /**< GPIO pin for I2C SCL */
+    uint32_t clk_speed; /**< I2C clock speed in Hz (default: 400000) */
+    
     accel_fs_t accel_fs;
     gyro_fs_t gyro_fs;
     dlpf_config_t dlpf_config;

@@ -299,8 +299,9 @@ mpu_handle_t mpu9250_init(const mpu_config_t* config) {
     
     // Configure sample rate divider
     if (dev->config.sample_rate_hz > 0) {
-        uint8_t smplrt_div = 1000 / dev->config.sample_rate_hz - 1;
-        if (smplrt_div > 255) smplrt_div = 255;
+        uint16_t smplrt_div_calc = 1000 / dev->config.sample_rate_hz - 1;
+        if (smplrt_div_calc > 255) smplrt_div_calc = 255;
+        uint8_t smplrt_div = (uint8_t)smplrt_div_calc;
         if (mpu9250_write_byte(dev, MPU9250_SMPLRT_DIV, smplrt_div) != ESP_OK) {
             ESP_LOGE(TAG, "Failed to configure sample rate");
             free(dev);
@@ -680,27 +681,39 @@ esp_err_t mpu9250_update_fusion(mpu_handle_t handle, imu_data_t* data, float dt)
  * @brief Initialize I2C communication
  */
 static esp_err_t mpu9250_i2c_init(mpu_config_t* config) {
+    if (config == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    // Validate GPIO pins
+    if (!GPIO_IS_VALID_GPIO(config->sda_pin) || !GPIO_IS_VALID_GPIO(config->scl_pin)) {
+        ESP_LOGE(TAG, "Invalid GPIO pins: SDA=%d, SCL=%d", config->sda_pin, config->scl_pin);
+        return ESP_ERR_INVALID_ARG;
+    }
+    
     i2c_config_t i2c_conf = {
         .mode = I2C_MODE_MASTER,
-        .sda_io_num = config->i2c_address,  // Note: This should be SDA pin
-        .scl_io_num = 15,  // Default SCL pin, adjust as needed
+        .sda_io_num = config->sda_pin,
+        .scl_io_num = config->scl_pin,
         .sda_pullup_en = GPIO_PULLUP_ENABLE,
         .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = 400000  // 400kHz
+        .master.clk_speed = (config->clk_speed > 0) ? config->clk_speed : 400000
     };
     
     esp_err_t ret = i2c_param_config(config->i2c_port, &i2c_conf);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to configure I2C parameters");
+        ESP_LOGE(TAG, "Failed to configure I2C parameters: %s", esp_err_to_name(ret));
         return ret;
     }
     
     ret = i2c_driver_install(config->i2c_port, i2c_conf.mode, 0, 0, 0);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to install I2C driver");
+        ESP_LOGE(TAG, "Failed to install I2C driver: %s", esp_err_to_name(ret));
         return ret;
     }
     
+    ESP_LOGI(TAG, "I2C initialized: port=%d, SDA=%d, SCL=%d, speed=%" PRIu32 "Hz", 
+             config->i2c_port, config->sda_pin, config->scl_pin, i2c_conf.master.clk_speed);
     return ESP_OK;
 }
 
@@ -1111,6 +1124,13 @@ void mpu9250_get_angular_rate_dps(const float gyro[3], float gyro_dps[3]) {
     for (int i = 0; i < 3; i++) {
         gyro_dps[i] = gyro[i] * 180.0f / M_PI;
     }
+}
+
+static void mpu9250_update_mahony(mpu_handle_t handle, float dt, float* accel, float* gyro, float* mag) {
+    // Placeholder for Mahony filter implementation
+    // TODO: Implement Mahony filter update
+    ESP_LOGW(TAG, "Mahony filter not implemented, using Madgwick");
+    mpu9250_update_madgwick(handle, dt, accel, gyro, mag);
 }
 
 

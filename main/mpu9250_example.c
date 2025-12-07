@@ -60,7 +60,7 @@ void print_orientation_metrics(const imu_data_t* data) {
     float rotation_angle = mpu9250_quaternion_to_axis_angle(data->quaternion, axis);
     
     // Print all metrics
-    ESP_LOGI(TAG, "=== ROCKET ORIENTATION METRICS ===");
+    ESP_LOGI(TAG, "\n\n=== ROCKET ORIENTATION METRICS ===");
     ESP_LOGI(TAG, "Euler Angles (deg): Roll: %.1f°, Pitch: %.1f°, Yaw: %.1f°", 
              roll_deg, pitch_deg, yaw_deg);
     ESP_LOGI(TAG, "Euler Angles (rad): Roll: %.3f, Pitch: %.3f, Yaw: %.3f", 
@@ -160,20 +160,23 @@ void rocket_control_logic(const imu_data_t* data) {
     // telemetry_send(roll, pitch, yaw, tilt_angle, data->accel, data->gyro);
 }
 
-void mpu9250_example_task(void* pvParameters) {
+void mpu9250_example_task(void* pvParameters)
+{
     ESP_LOGI(TAG, "Starting enhanced MPU-9250 example for rocket control");
     
-    // Configure MPU-9250 (same as before)
     mpu_config_t config = {
         .i2c_port = I2C_NUM_0,
-        .i2c_address = 0x68,
+        .i2c_address = 0x68,           // Default address (AD0 = GND)
+        // .i2c_address = 0x69,        // Alternative address (AD0 = VCC)
+        .sda_pin = 21,                 // GPIO21 for SDA
+        .scl_pin = 22,                 // GPIO22 for SCL
         .accel_fs = ACCEL_FS_16G,
         .gyro_fs = GYRO_FS_2000DPS,
         .dlpf_config = DLPF_184HZ,
         .sample_rate_hz = 200,
         .enable_mag = true,
         .enable_temp = true,
-        .interrupt_pin = GPIO_NUM_NC
+        .interrupt_pin = GPIO_NUM_NC    // No interrupt pin used
     };
     
     mpu_handle_t imu = mpu9250_init(&config);
@@ -194,7 +197,8 @@ void mpu9250_example_task(void* pvParameters) {
     imu_data_t sensor_data;
     uint32_t iteration = 0;
     
-    while (1) {
+    while (1)
+    {
         if (mpu9250_read_all(imu, &sensor_data) == ESP_OK) {
             // Update sensor fusion with fixed time step (for consistent output)
             float dt = 1.0f / config.sample_rate_hz;
@@ -213,11 +217,12 @@ void mpu9250_example_task(void* pvParameters) {
         
         vTaskDelay(pdMS_TO_TICKS(1000 / config.sample_rate_hz));
     }
-    
+
     mpu9250_deinit(imu);
     vTaskDelete(NULL);
 }
 
-void example_main() {
+void example_main()
+{
     xTaskCreate(mpu9250_example_task, "mpu9250_example", 4096, NULL, 5, NULL);
 }
