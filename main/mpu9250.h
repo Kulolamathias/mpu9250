@@ -409,4 +409,5 @@ void mpu9250_get_angular_rate_dps(const float gyro[3], float gyro_dps[3]);
 }
 #endif
 
+
 #endif /* MPU9250_H */
