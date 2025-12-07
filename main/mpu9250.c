@@ -658,6 +658,24 @@ static void mpu9250_update_madgwick(mpu_handle_t handle, float dt, float* accel,
     }
 }
 
+esp_err_t mpu9250_update_fusion(mpu_handle_t handle, imu_data_t* data, float dt) {
+    if (handle == NULL || data == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    if (dt <= 0 || dt > 0.1f) {  // Sanity check (max 100ms delta)
+        dt = 0.01f;  // Default to 100Hz
+    }
+    
+    // Update Madgwick filter
+    mpu9250_update_madgwick(handle, dt, data->accel, data->gyro, data->mag);
+    
+    // Copy updated quaternion back to data
+    memcpy(data->quaternion, handle->quaternion, sizeof(float) * 4);
+    
+    return ESP_OK;
+}
+
 /**
  * @brief Initialize I2C communication
  */

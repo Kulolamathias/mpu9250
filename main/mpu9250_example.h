@@ -10,6 +10,7 @@
 
 #include "mpu9250.h"
 
+void example_main(void);
 void mpu9250_example_task(void* pvParameters);
 
 #endif /* MPU9250_EXAMPLE_H */

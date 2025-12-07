@@ -13,7 +13,6 @@
 
 
 
-
 void app_main(void) {
-    xTaskCreate(mpu9250_example_task, "mpu9250_example", 4096, NULL, 5, NULL);
+    example_main();
 }

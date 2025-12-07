@@ -204,10 +204,11 @@ esp_err_t mpu9250_read_raw(mpu_handle_t handle, int16_t* accel_raw, int16_t* gyr
  * @brief Update sensor fusion algorithm (Mahony/Madgwick)
  * 
  * @param handle Sensor handle
+ * @param data Pointer to latest IMU data
  * @param dt Time delta since last update in seconds
  * @return esp_err_t ESP_OK on success, error code on failure
  */
-esp_err_t mpu9250_update_fusion(mpu_handle_t handle, float dt);
+esp_err_t mpu9250_update_fusion(mpu_handle_t handle, imu_data_t* data, float dt);
 
 /**
  * @brief Reset sensor fusion to default orientation
