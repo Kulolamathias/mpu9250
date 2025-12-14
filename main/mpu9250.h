@@ -420,6 +420,13 @@ float mpu9250_get_angular_rate_magnitude(const float gyro[3]);
  */
 void mpu9250_get_angular_rate_dps(const float gyro[3], float gyro_dps[3]);
 
+/**
+ * @brief Print debug information about the sensor
+ * 
+ * @param handle Sensor handle
+ */
+void mpu9250_print_debug_info(mpu_handle_t handle);
+
 #ifdef __cplusplus
 }
 #endif

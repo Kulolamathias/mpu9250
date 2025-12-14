@@ -214,6 +214,10 @@ static const float GYRO_SCALES[] = {
 };
 
 
+static esp_err_t mpu9250_reset_fifo(mpu_handle_t handle);
+static esp_err_t mpu9250_soft_reset(mpu_handle_t handle);
+
+
 /**
  * @brief Initialize MPU sensor
  */
@@ -233,6 +237,7 @@ mpu_handle_t mpu9250_init(const mpu_config_t* config) {
     // Copy configuration
     dev->config = *config;
     dev->address = config->i2c_address;
+    dev->i2c_port = config->i2c_port;
     
     // Initialize I2C
     if (mpu9250_i2c_init(&dev->config) != ESP_OK) {
@@ -426,36 +431,49 @@ esp_err_t mpu9250_read_all(mpu_handle_t handle, imu_data_t* data) {
     
     // Read magnetometer if enabled
     if (handle->mag_enabled) {
-        uint8_t mag_buffer[7];
+        uint8_t mag_buffer[8];  // Increased buffer size
         uint8_t mag_status;
         
-        // Read ST1 register to check data ready
-        mpu9250_write_byte(handle, MPU9250_I2C_SLV0_ADDR, 0x8C);
-        mpu9250_write_byte(handle, MPU9250_I2C_SLV0_REG, AK8963_ST1);
-        mpu9250_write_byte(handle, MPU9250_I2C_SLV0_CTRL, 0x81);
-        vTaskDelay(pdMS_TO_TICKS(10));
-        
-        mpu9250_read_bytes(handle, MPU9250_EXT_SENS_DATA_00, &mag_status, 1);
-        
-        if (mag_status & 0x01) {
-            // Read magnetometer data
-            mpu9250_write_byte(handle, MPU9250_I2C_SLV0_ADDR, 0x8C);
-            mpu9250_write_byte(handle, MPU9250_I2C_SLV0_REG, AK8963_HXL);
-            mpu9250_write_byte(handle, MPU9250_I2C_SLV0_CTRL, 0x87);
-            vTaskDelay(pdMS_TO_TICKS(10));
+        // Check if data is ready
+        if (mpu9250_write_byte(handle, MPU9250_I2C_SLV0_ADDR, 0x8C) != ESP_OK ||
+            mpu9250_write_byte(handle, MPU9250_I2C_SLV0_REG, AK8963_ST1) != ESP_OK ||
+            mpu9250_write_byte(handle, MPU9250_I2C_SLV0_CTRL, 0x81) != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to setup magnetometer read");
+            data->mag[0] = data->mag[1] = data->mag[2] = 0.0f;
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(1));
+            mpu9250_read_bytes(handle, MPU9250_EXT_SENS_DATA_00, &mag_status, 1);
             
-            mpu9250_read_bytes(handle, MPU9250_EXT_SENS_DATA_00, mag_buffer, 7);
-            
-            // Parse magnetometer data
-            int16_t mag_raw[3];
-            mag_raw[0] = (mag_buffer[1] << 8) | mag_buffer[0];
-            mag_raw[1] = (mag_buffer[3] << 8) | mag_buffer[2];
-            mag_raw[2] = (mag_buffer[5] << 8) | mag_buffer[4];
-            
-            // Apply sensitivity adjustment and convert to uT
-            for (int i = 0; i < 3; i++) {
-                float adj = ((float)handle->mag_sens_adj[i] - 128.0f) / 256.0f + 1.0f;
-                data->mag[i] = mag_raw[i] * 0.6f * adj;  // 0.6 uT/LSB for 16-bit output
+            if (mag_status & 0x01) {  // Data ready
+                // Read all 7 magnetometer registers (HXL to ST2)
+                if (mpu9250_write_byte(handle, MPU9250_I2C_SLV0_ADDR, 0x8C) != ESP_OK ||
+                    mpu9250_write_byte(handle, MPU9250_I2C_SLV0_REG, AK8963_HXL) != ESP_OK ||
+                    mpu9250_write_byte(handle, MPU9250_I2C_SLV0_CTRL, 0x87) != ESP_OK) {
+                    ESP_LOGW(TAG, "Failed to setup magnetometer data read");
+                } else {
+                    vTaskDelay(pdMS_TO_TICKS(1));
+                    mpu9250_read_bytes(handle, MPU9250_EXT_SENS_DATA_00, mag_buffer, 7);
+                    
+                    // Check for overflow
+                    if (!(mag_buffer[6] & 0x08)) {  // Check ST2 register for overflow
+                        int16_t mag_raw[3];
+                        mag_raw[0] = (mag_buffer[1] << 8) | mag_buffer[0];
+                        mag_raw[1] = (mag_buffer[3] << 8) | mag_buffer[2];
+                        mag_raw[2] = (mag_buffer[5] << 8) | mag_buffer[4];
+                        
+                        // Apply sensitivity adjustment and convert to uT
+                        for (int i = 0; i < 3; i++) {
+                            float adj = ((float)handle->mag_sens_adj[i] - 128.0f) / 256.0f + 1.0f;
+                            data->mag[i] = mag_raw[i] * 0.6f * adj;  // 0.6 uT/LSB for 16-bit output
+                        }
+                    } else {
+                        ESP_LOGW(TAG, "Magnetometer overflow detected");
+                        data->mag[0] = data->mag[1] = data->mag[2] = 0.0f;
+                    }
+                }
+            } else {
+                ESP_LOGW(TAG, "Magnetometer data not ready");
+                data->mag[0] = data->mag[1] = data->mag[2] = 0.0f;
             }
         }
     } else {
@@ -738,25 +756,43 @@ static esp_err_t mpu9250_write_byte(mpu_handle_t handle, uint8_t reg, uint8_t da
  * @brief Read bytes from register
  */
 static esp_err_t mpu9250_read_bytes(mpu_handle_t handle, uint8_t reg, uint8_t* data, uint8_t length) {
-    if (length == 0) return ESP_OK;
+    if (handle == NULL || data == NULL || length == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
     
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    if (cmd == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    
+    esp_err_t ret;
+    
+    // Write register address
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, (handle->address << 1) | I2C_MASTER_WRITE, true);
     i2c_master_write_byte(cmd, reg, true);
+    
+    // Repeated start for read
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, (handle->address << 1) | I2C_MASTER_READ, true);
     
+    // Read data
     if (length > 1) {
         i2c_master_read(cmd, data, length - 1, I2C_MASTER_ACK);
     }
     i2c_master_read_byte(cmd, data + length - 1, I2C_MASTER_NACK);
+    
     i2c_master_stop(cmd);
     
-    esp_err_t ret = i2c_master_cmd_begin(handle->i2c_port, cmd, pdMS_TO_TICKS(1000));
+    ret = i2c_master_cmd_begin(handle->i2c_port, cmd, pdMS_TO_TICKS(100));
     i2c_cmd_link_delete(cmd);
     
-    return ret;
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "I2C read failed: %s (reg: 0x%02X)", esp_err_to_name(ret), reg);
+        return ret;
+    }
+    
+    return ESP_OK;
 }
 
 // ... Additional private functions would follow for completeness
@@ -874,11 +910,11 @@ void mpu9250_get_euler_angles(const float q[4], float* roll, float* pitch, float
     if (q == NULL) return;
     
     euler_angles_t angles;
-    mpu9250_quaternion_to_euler(q, &angles, 0);  // Use aerospace convention
+    mpu9250_quaternion_to_euler(q, &angles, 0);  // Using aerospace convention
     
-    if (roll) *roll = angles.roll;
-    if (pitch) *pitch = angles.pitch;
-    if (yaw) *yaw = angles.yaw;
+    if (roll) *roll     = angles.roll;
+    if (pitch) *pitch   = angles.pitch;
+    if (yaw) *yaw       = angles.yaw;
 }
 
 /**
@@ -1133,5 +1169,82 @@ static void mpu9250_update_mahony(mpu_handle_t handle, float dt, float* accel, f
     mpu9250_update_madgwick(handle, dt, accel, gyro, mag);
 }
 
+/**
+ * @brief Reset sensor FIFO
+ */
+static esp_err_t mpu9250_reset_fifo(mpu_handle_t handle) {
+    if (handle == NULL) return ESP_ERR_INVALID_ARG;
+    
+    // Reset FIFO
+    if (mpu9250_write_byte(handle, MPU9250_PWR_MGMT_1, 0x04) != ESP_OK) {
+        return ESP_FAIL;
+    }
+    
+    // Clear reset
+    if (mpu9250_write_byte(handle, MPU9250_PWR_MGMT_1, 0x00) != ESP_OK) {
+        return ESP_FAIL;
+    }
+    
+    vTaskDelay(pdMS_TO_TICKS(10));
+    return ESP_OK;
+}
 
-// Implement remaining public functions as needed...
+/**
+ * @brief Soft reset the sensor
+ */
+static esp_err_t mpu9250_soft_reset(mpu_handle_t handle) {
+    if (handle == NULL) return ESP_ERR_INVALID_ARG;
+    
+    // Perform soft reset
+    if (mpu9250_write_byte(handle, MPU9250_PWR_MGMT_1, 0x80) != ESP_OK) {
+        return ESP_FAIL;
+    }
+    
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
+    // Wake up device
+    if (mpu9250_write_byte(handle, MPU9250_PWR_MGMT_1, 0x00) != ESP_OK) {
+        return ESP_FAIL;
+    }
+    
+    vTaskDelay(pdMS_TO_TICKS(100));
+    return ESP_OK;
+}
+
+/**
+ * @brief Print debug information about the sensor
+ */
+void mpu9250_print_debug_info(mpu_handle_t handle) {
+    if (handle == NULL) {
+        ESP_LOGE(TAG, "Invalid handle");
+        return;
+    }
+    
+    uint8_t whoami, pwr_mgmt_1, gyro_config, accel_config;
+    
+    ESP_LOGI(TAG, "=== MPU9250 DEBUG INFO ===");
+    
+    // Read WHO_AM_I
+    if (mpu9250_read_bytes(handle, MPU9250_WHO_AM_I, &whoami, 1) == ESP_OK) {
+        ESP_LOGI(TAG, "WHO_AM_I: 0x%02X", whoami);
+    } else {
+        ESP_LOGE(TAG, "Failed to read WHO_AM_I");
+    }
+    
+    // Read PWR_MGMT_1
+    if (mpu9250_read_bytes(handle, MPU9250_PWR_MGMT_1, &pwr_mgmt_1, 1) == ESP_OK) {
+        ESP_LOGI(TAG, "PWR_MGMT_1: 0x%02X", pwr_mgmt_1);
+    }
+    
+    // Read GYRO_CONFIG
+    if (mpu9250_read_bytes(handle, MPU9250_GYRO_CONFIG, &gyro_config, 1) == ESP_OK) {
+        ESP_LOGI(TAG, "GYRO_CONFIG: 0x%02X", gyro_config);
+    }
+    
+    // Read ACCEL_CONFIG
+    if (mpu9250_read_bytes(handle, MPU9250_ACCEL_CONFIG, &accel_config, 1) == ESP_OK) {
+        ESP_LOGI(TAG, "ACCEL_CONFIG: 0x%02X", accel_config);
+    }
+    
+    ESP_LOGI(TAG, "==========================");
+}

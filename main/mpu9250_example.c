@@ -100,6 +100,11 @@ void print_orientation_metrics(const imu_data_t* data) {
     
     ESP_LOGI(TAG, "Temperature: %.1f°C", data->temperature);
     ESP_LOGI(TAG, "=================================");
+
+    /**
+     * @attention TO BE REMOVED... just added small delay to avoid too quick logs..
+     */
+    vTaskDelay(pdMS_TO_TICKS(200));
 }
 
 void rocket_control_logic(const imu_data_t* data) {
@@ -166,17 +171,17 @@ void mpu9250_example_task(void* pvParameters)
     
     mpu_config_t config = {
         .i2c_port = I2C_NUM_0,
-        .i2c_address = 0x68,           // Default address (AD0 = GND)
-        // .i2c_address = 0x69,        // Alternative address (AD0 = VCC)
-        .sda_pin = 21,                 // GPIO21 for SDA
-        .scl_pin = 22,                 // GPIO22 for SCL
+        .i2c_address = 0x68,
+        .sda_pin = 21,
+        .scl_pin = 22,
+        .clk_speed = 400000,
         .accel_fs = ACCEL_FS_16G,
         .gyro_fs = GYRO_FS_2000DPS,
         .dlpf_config = DLPF_184HZ,
         .sample_rate_hz = 200,
         .enable_mag = true,
         .enable_temp = true,
-        .interrupt_pin = GPIO_NUM_NC    // No interrupt pin used
+        .interrupt_pin = GPIO_NUM_NC
     };
     
     mpu_handle_t imu = mpu9250_init(&config);
@@ -186,8 +191,11 @@ void mpu9250_example_task(void* pvParameters)
         return;
     }
     
-    // Calibrate (important for rocket!)
-    ESP_LOGI(TAG, "Calibrating IMU (keep rocket stationary and level)...");
+    // Print debug info
+    mpu9250_print_debug_info(imu);
+    
+    // Calibrate
+    ESP_LOGI(TAG, "Calibrating IMU...");
     if (mpu9250_calibrate(imu, CALIBRATION_ALL, 1000) != ESP_OK) {
         ESP_LOGW(TAG, "Calibration failed or incomplete");
     }
@@ -200,24 +208,30 @@ void mpu9250_example_task(void* pvParameters)
     while (1)
     {
         if (mpu9250_read_all(imu, &sensor_data) == ESP_OK) {
-            // Update sensor fusion with fixed time step (for consistent output)
+            // Update sensor fusion with fixed time step
             float dt = 1.0f / config.sample_rate_hz;
             mpu9250_update_fusion(imu, &sensor_data, dt);
             
-            // Print orientation metrics every 100 iterations (0.5 seconds at 200Hz)
-            if (iteration % 100 == 0) {
+            // Print orientation metrics every 50 iterations
+            if (iteration % 50 == 0) {
                 print_orientation_metrics(&sensor_data);
             }
             
-            // Run rocket control logic
-            rocket_control_logic(&sensor_data);
-            
             iteration++;
+        } else {
+            ESP_LOGE(TAG, "Failed to read sensor data");
+            // Try to reinitialize on failure
+            static int fail_count = 0;
+            fail_count++;
+            if (fail_count > 10) {
+                ESP_LOGE(TAG, "Too many failures, restarting task...");
+                vTaskDelete(NULL);
+            }
         }
         
-        vTaskDelay(pdMS_TO_TICKS(1000 / config.sample_rate_hz));
+        vTaskDelay(pdMS_TO_TICKS(5)); // 200Hz sampling
     }
-
+    
     mpu9250_deinit(imu);
     vTaskDelete(NULL);
 }
